@@ -1,0 +1,16 @@
+{
+  "name": "nodejs",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node ."
+  },
+  "dependencies": {
+    "@types/node": "^18.0.6",
+    "discord.js": "^13.9.0",
+    "node-fetch": "^3.3.2"
+  },
+  "engines": {
+    "node": "16.x"
+  }
+}
