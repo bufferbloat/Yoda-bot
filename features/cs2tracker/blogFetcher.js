@@ -2,11 +2,9 @@ const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fet
 
 async function fetchCS2BlogUpdates() {
   try {
-    // Fetch the CS2 blog RSS feed
     const response = await fetch('https://blog.counter-strike.net/index.php/feed/');
     const text = await response.text();
     
-    // Simple parsing of the RSS feed
     const items = [];
     const itemMatches = text.match(/<item>([\s\S]*?)<\/item>/g);
     

@@ -1,18 +1,16 @@
-const { streamingStatus } = require('../utils/streamingStatus');
+const { streamingStatus } = require("../utils/streamingStatus");
 
 module.exports = {
-  name: 'shardReconnecting',
+  name: "shardReconnecting",
   execute(_, client) {
-    console.log('Reconnecting to Discord...');
-  }
+    console.log("Reconnecting to Discord...");
+  },
 };
 
-// Create a separate file for the resume event
-// events/resume.js
 module.exports = {
-  name: 'shardResume',
+  name: "shardResume",
   execute(_, client) {
-    console.log('Reconnected to Discord, refreshing status...');
+    console.log("Reconnected to Discord, refreshing status...");
     streamingStatus.set(client);
-  }
-}; 
+  },
+};

@@ -3,65 +3,111 @@ const path = require('path');
 const { fetchSteamNews } = require('./steamApi');
 const { fetchCS2BlogUpdates } = require('./blogFetcher');
 
-// Path to store the last update data
-const dataFilePath = path.join(__dirname, '../../cs2_last_update.json');
+const dataFilePath = path.join(__dirname, '../../data/cs2_last_update.json');
 
-// CS2 update tracking data
 let cs2UpdateConfig = {
-  enabled: false,
-  channelId: null,
-  lastUpdateTitle: null,
-  checkInterval: 30 * 60 * 1000 // 30 minutes
+  servers: {},
+  checkInterval: 5 * 60 * 1000
 };
 
-// Load existing configuration if available
 try {
   if (fs.existsSync(dataFilePath)) {
     const data = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
-    cs2UpdateConfig = { ...cs2UpdateConfig, ...data };
+    cs2UpdateConfig = { 
+      ...cs2UpdateConfig, 
+      ...data,
+      enabled: data.channelId ? true : false
+    };
     console.log('Loaded CS2 update configuration:', cs2UpdateConfig);
+  } else {
+    saveCS2Config();
+    console.log('Created new CS2 update configuration file');
   }
 } catch (error) {
   console.error('Error loading CS2 update configuration:', error);
 }
 
-// Save configuration to file
 function saveCS2Config() {
   try {
+    const dir = path.dirname(dataFilePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    
+    if (cs2UpdateConfig.channelId) {
+      cs2UpdateConfig.enabled = true;
+    }
+    
     fs.writeFileSync(dataFilePath, JSON.stringify(cs2UpdateConfig, null, 2));
-    console.log('Saved CS2 update configuration');
+    console.log('Saved CS2 update configuration:', cs2UpdateConfig);
   } catch (error) {
     console.error('Error saving CS2 update configuration:', error);
   }
 }
 
-// Function to check for CS2 updates
-async function checkCS2Updates(client, forceUpdate = false, channelOverride = null) {
-  // Use override channel or configured channel
-  const channelId = channelOverride || cs2UpdateConfig.channelId;
+function getServerConfig(guildId) {
+  if (!cs2UpdateConfig.servers[guildId]) {
+    cs2UpdateConfig.servers[guildId] = {
+      enabled: false,
+      channelId: null,
+      lastUpdateTitle: null,
+      lastUpdateDate: null
+    };
+  }
+  return cs2UpdateConfig.servers[guildId];
+}
+
+async function checkCS2Updates(client, forceUpdate = false, channelOverride = null, guildId = null) {
+  if (!guildId) {
+    const results = [];
+    for (const [serverId, config] of Object.entries(cs2UpdateConfig.servers)) {
+      if (config.enabled) {
+        const result = await checkCS2Updates(client, forceUpdate, config.channelId, serverId);
+        results.push(result);
+      }
+    }
+    return results;
+  }
+
+  const serverConfig = getServerConfig(guildId);
+  const channelId = channelOverride || serverConfig.channelId;
   
+  if (channelId && !serverConfig.enabled) {
+    serverConfig.enabled = true;
+    serverConfig.channelId = channelId;
+    saveCS2Config();
+    console.log('CS2 update tracking automatically enabled for channel:', channelId);
+  }
+
   if (!channelId) {
     console.log('No channel configured for CS2 updates');
     return { success: false, message: 'No channel configured for CS2 updates' };
   }
   
   try {
-    console.log('Checking for CS2 updates...');
+    console.log('Checking for CS2 updates...', {
+      enabled: serverConfig.enabled,
+      channelId: channelId,
+      lastUpdateTitle: serverConfig.lastUpdateTitle
+    });
     
-    // Get news items from Steam API
     const steamNews = await fetchSteamNews(10, 2000);
     
     console.log(`Steam API returned ${steamNews.length} news items`);
     
     if (steamNews.length > 0) {
-      // Filter for items that are likely to be updates (contain keywords in title)
-      const updateKeywords = ['update', 'patch', 'release notes', 'changelog'];
+      const updateKeywords = ['update', 'patch', 'release notes', 'changelog', 'counter-strike 2 update'];
       let updateNews = steamNews.filter(item => {
         const title = item.title.toLowerCase();
-        return updateKeywords.some(keyword => title.includes(keyword));
+        return updateKeywords.some(keyword => title.toLowerCase().includes(keyword));
       });
       
-      // If no update-specific news found, just use the latest news
+      console.log('Filtered update news:', {
+        total: steamNews.length,
+        filtered: updateNews.length,
+        titles: updateNews.map(n => n.title)
+      });
+      
       if (updateNews.length === 0) {
         console.log('No update-specific news found, using latest news item');
         updateNews = [steamNews[0]];
@@ -73,33 +119,35 @@ async function checkCS2Updates(client, forceUpdate = false, channelOverride = nu
       const updateTitle = latestNews.title;
       let updateContent = latestNews.contents;
       
-      // Remove HTML tags from content
       updateContent = updateContent.replace(/<\/?[^>]+(>|$)/g, '');
       
       console.log('Parsed update title:', updateTitle);
       console.log('Content sample:', updateContent.substring(0, 100) + '...');
       
-      // If this is a new update we haven't seen before or force is true
-      if (forceUpdate || updateTitle !== cs2UpdateConfig.lastUpdateTitle) {
-        console.log('New CS2 update found or force enabled:', updateTitle);
+      if (forceUpdate || updateTitle !== serverConfig.lastUpdateTitle || latestNews.date !== serverConfig.lastUpdateDate) {
+        console.log('New CS2 update found or force enabled:', {
+          updateTitle,
+          lastUpdateTitle: serverConfig.lastUpdateTitle,
+          updateDate: new Date(latestNews.date * 1000),
+          lastUpdateDate: serverConfig.lastUpdateDate ? new Date(serverConfig.lastUpdateDate * 1000) : null,
+          forceUpdate,
+          channelId
+        });
         
-        // Create a summary from the content
         let summary = '';
         
-        // Try to extract bullet points if they exist
         const bulletPoints = updateContent.split(/[\n\r]+/).filter(line => {
           const trimmed = line.trim();
           return trimmed.startsWith('•') || 
                  trimmed.startsWith('-') || 
                  trimmed.startsWith('*') ||
-                 /^\[\*\]/.test(trimmed) ||  // [*] format
-                 /^\d+\./.test(trimmed);     // Numbered lists
+                 /^\[\*\]/.test(trimmed) ||
+                 /^\d+\./.test(trimmed);
         });
         
         if (bulletPoints.length > 0) {
           summary = bulletPoints.slice(0, 5).join('\n');
         } else {
-          // If no bullet points, create a summary from paragraphs
           const paragraphs = updateContent.split(/[\n\r]+/).filter(p => p.trim().length > 0);
           if (paragraphs.length > 0) {
             summary = paragraphs.slice(0, 2).join('\n\n');
@@ -111,13 +159,12 @@ async function checkCS2Updates(client, forceUpdate = false, channelOverride = nu
           }
         }
         
-        // Get the channel and send the update
         const channel = await client.channels.fetch(channelId);
         if (channel) {
           const embed = {
             title: `Counter-Strike 2 Update: ${updateTitle}`,
             description: summary || 'New update available!',
-            color: 0xF56C2D, // Orange color
+            color: 0xF56C2D,
             url: latestNews.url || 'https://www.counter-strike.net/news/updates',
             thumbnail: {
               url: 'https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/730/69f7ebe2735c366c65c0b33dae00e12dc40edbe4.jpg'
@@ -125,14 +172,14 @@ async function checkCS2Updates(client, forceUpdate = false, channelOverride = nu
             footer: {
               text: forceUpdate ? 'Debug mode - View the full update notes on Steam' : 'View the full update notes on Steam'
             },
-            timestamp: new Date(latestNews.date * 1000) // Convert Unix timestamp to Date
+            timestamp: new Date(latestNews.date * 1000)
           };
           
           await channel.send({ embeds: [embed] });
           
-          // Update the last seen update if not in debug mode
           if (!forceUpdate) {
-            cs2UpdateConfig.lastUpdateTitle = updateTitle;
+            serverConfig.lastUpdateTitle = updateTitle;
+            serverConfig.lastUpdateDate = latestNews.date;
             saveCS2Config();
           }
           
@@ -144,25 +191,30 @@ async function checkCS2Updates(client, forceUpdate = false, channelOverride = nu
           };
         }
       } else {
-        console.log('No new CS2 updates found');
+        console.log('No new CS2 updates found:', {
+          updateTitle,
+          lastUpdateTitle: serverConfig.lastUpdateTitle,
+          updateDate: new Date(latestNews.date * 1000),
+          lastUpdateDate: serverConfig.lastUpdateDate ? new Date(serverConfig.lastUpdateDate * 1000) : null,
+          forceUpdate
+        });
         return { 
           success: false, 
           message: 'No new updates found',
           title: updateTitle,
-          lastSeen: cs2UpdateConfig.lastUpdateTitle
+          lastSeen: serverConfig.lastUpdateTitle
         };
       }
     } else {
       console.log('No news items found in Steam API response');
       
-      // Fallback to a simpler approach - just create a generic update notification
       if (forceUpdate) {
         const channel = await client.channels.fetch(channelId);
         if (channel) {
           const embed = {
             title: 'Counter-Strike 2 Update',
             description: 'A new update might be available. Check the official CS2 website for details.',
-            color: 0xF56C2D, // Orange color
+            color: 0xF56C2D,
             url: 'https://www.counter-strike.net/news/updates',
             thumbnail: {
               url: 'https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/730/69f7ebe2735c366c65c0b33dae00e12dc40edbe4.jpg'
@@ -188,7 +240,7 @@ async function checkCS2Updates(client, forceUpdate = false, channelOverride = nu
   } catch (error) {
     console.error('Error checking for CS2 updates:', error);
     
-    // Fallback for debug mode
+
     if (forceUpdate) {
       try {
         const channel = await client.channels.fetch(channelId);
@@ -196,7 +248,7 @@ async function checkCS2Updates(client, forceUpdate = false, channelOverride = nu
           const embed = {
             title: 'Counter-Strike 2 Update',
             description: 'A new update might be available. Check the official CS2 website for details.\n\n*Error occurred while fetching update details.*',
-            color: 0xF56C2D, // Orange color
+            color: 0xF56C2D,
             url: 'https://www.counter-strike.net/news/updates',
             thumbnail: {
               url: 'https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/730/69f7ebe2735c366c65c0b33dae00e12dc40edbe4.jpg'
@@ -224,20 +276,32 @@ async function checkCS2Updates(client, forceUpdate = false, channelOverride = nu
   }
 }
 
-// Initialize the tracker
 function init(client) {
-  // Start checking for CS2 updates if enabled
-  if (cs2UpdateConfig.enabled) {
-    // Initial check
-    checkCS2Updates(client);
-    // Set up interval for checking
-    global.cs2UpdateInterval = setInterval(() => checkCS2Updates(client), cs2UpdateConfig.checkInterval);
+  console.log('CS2 tracker init called with config:', cs2UpdateConfig);
+
+  for (const [guildId, serverConfig] of Object.entries(cs2UpdateConfig.servers)) {
+    if (serverConfig.enabled && serverConfig.channelId) {
+      console.log(`Initializing tracker for server ${guildId}`);
+      
+      checkCS2Updates(client, false, null, guildId);
+    }
   }
+  
+  if (global.cs2UpdateInterval) {
+    clearInterval(global.cs2UpdateInterval);
+  }
+  
+  global.cs2UpdateInterval = setInterval(() => {
+    checkCS2Updates(client);
+  }, cs2UpdateConfig.checkInterval);
+  
+  console.log('CS2 update tracker initialized');
 }
 
 module.exports = {
   init,
   checkCS2Updates,
   cs2UpdateConfig,
-  saveCS2Config
+  saveCS2Config,
+  getServerConfig
 }; 

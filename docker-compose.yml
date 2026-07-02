@@ -6,3 +6,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}

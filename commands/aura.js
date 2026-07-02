@@ -1,76 +1,77 @@
 module.exports = {
   data: {
-    name: 'aura',
-    description: 'Check your aura or someone else\'s aura',
+    name: "aura",
+    description: "Check your aura or someone else's aura",
+    dm_permission: true,
     options: [
       {
-        name: 'user',
-        description: 'The user to check the aura of (leave empty for yourself)',
-        type: 6, // USER
-        required: false
-      }
-    ]
+        name: "user",
+        description: "The user to check the aura of (leave empty for yourself)",
+        type: 6,
+        required: false,
+      },
+    ],
   },
   async execute(interaction) {
-    // Get the target user (mentioned user or the command user)
-    const targetUser = interaction.options.getUser('user') || interaction.user;
-    
-    // Generate a random aura percentage (0-100)
-    const auraPercentage = Math.floor(Math.random() * 101);
-    
-    // Determine aura quality based on percentage
+    // target user
+    const targetUser = interaction.options.getUser("user") || interaction.user;
+
+    // random aura
+    const auraPercentage = Math.floor(Math.random() * 11) * 10;
+
+    // aura quality
     let auraQuality;
     let auraColor;
-    
+
     if (auraPercentage >= 90) {
       auraQuality = "Goated";
-      auraColor = 0xFFD700; // Gold
-    } else if (auraPercentage >= 75) {
+      auraColor = 0xffd700; // Gold
+    } else if (auraPercentage >= 70) {
       auraQuality = "Excellent";
-      auraColor = 0x9B30FF; // Purple
-    } else if (auraPercentage >= 60) {
+      auraColor = 0x9b30ff; // Purple
+    } else if (auraPercentage >= 50) {
       auraQuality = "Great";
-      auraColor = 0x1E90FF; // Blue
-    } else if (auraPercentage >= 40) {
+      auraColor = 0x1e90ff; // Blue
+    } else if (auraPercentage >= 30) {
       auraQuality = "Good";
-      auraColor = 0x32CD32; // Green
+      auraColor = 0x32cd32; // Green
     } else if (auraPercentage >= 20) {
       auraQuality = "Average";
-      auraColor = 0xFFFF00; // Yellow
+      auraColor = 0xffff00; // Yellow
     } else if (auraPercentage >= 10) {
-      auraQuality = "Weak";
-      auraColor = 0xFFA500; // Orange
+      auraQuality = "Poop";
+      auraColor = 0xffa500; // Orange
     } else {
-      auraQuality = "Nul";
-      auraColor = 0xFF0000; // Red
+      auraQuality = "Super Poop";
+      auraColor = 0xff0000; // Red
     }
-    
-    // Create an embed for the response
+
+    // embed
     const embed = {
       title: `${targetUser.username}'s Aura Reading`,
       description: `Yoda has analyzed ${targetUser.username}'s aura...`,
       color: auraColor,
       fields: [
         {
-          name: 'Aura Strength',
+          name: "Aura Strength",
           value: `${auraPercentage}%`,
-          inline: true
+          inline: true,
         },
         {
-          name: 'Quality',
+          name: "Quality",
           value: auraQuality,
-          inline: true
-        }
+          inline: true,
+        },
       ],
       thumbnail: {
-        url: targetUser.displayAvatarURL({ dynamic: true })
+        url: targetUser.displayAvatarURL({ dynamic: true }),
       },
       footer: {
-        text: 'Aura readings by Yoda'
+        text: "Aura readings by Yoda",
       },
-      timestamp: new Date()
+      timestamp: new Date(),
     };
-    
+
     await interaction.reply({ embeds: [embed] });
-  }
-}; 
+  },
+};
